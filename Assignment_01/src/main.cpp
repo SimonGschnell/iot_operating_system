@@ -14,7 +14,7 @@ Color * led_ptr = &led;
 
 void setup() {
   pinMode(RGB_BUILTIN, OUTPUT);
-  pinMode(35, INPUT);
+  pinMode(0, INPUT_PULLUP);
   Serial.begin(115200);
   delay(500);
   neopixelWrite(RGB_BUILTIN, led_ptr->red, led_ptr->green, led_ptr->blue); 
@@ -22,14 +22,11 @@ void setup() {
 
 int currentState;
 int lastState= HIGH;
-int alternativeState = HIGH;
-int captureTime;
-
 
 void loop() {
   //The ESP32-S3 has a 45k ohm internal pull-up/pull-down resistor at GPIO0 
   //https://docs.espressif.com/projects/esptool/en/latest/esp32s3/advanced-topics/boot-mode-selection.html
-  currentState =digitalRead(35);
+  currentState =digitalRead(0);
 
   if (lastState == LOW && currentState == HIGH){
     //added little delay for debounce of button press
