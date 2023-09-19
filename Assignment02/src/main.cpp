@@ -1,133 +1,101 @@
 #include <Arduino.h>
-gpio_num_t la = GPIO_NUM_36;
+
+#define DHT_PIN 36 //DATA PIN 
+
+
+u_int8_t luftfeuchtigkeit;
+u_int8_t temperatur;
+u_int8_t checksum;
 
 
 hw_timer_t * timer1 = nullptr;
-hw_timer_t * timer2 = nullptr;
+volatile bool has_interrupt = false; 
+u_int8_t data[5];  // array 5x8, 40 bits of data
 
-uint8_t dhtData[80];  // Store the data
 
-
-void read_data(){
-  ets_delay_us(160);
-  Serial.write(digitalRead(la));
-  
-
+void IRAM_ATTR start_interrupt(){
+  has_interrupt = true;
 }
 
-void IRAM_ATTR end_start_signal(){
-  
-  digitalWrite(la,HIGH);
-  pinMode(la,INPUT_PULLUP);
-  ets_delay_us(40);
-  Serial.write("a");
-  //read_data();
-
+void send_start_signal()
+{
+  digitalWrite(36, LOW);  
+  delay(20);              
+  digitalWrite(36, HIGH); 
+  pinMode(36, INPUT);     
 }
 
-void IRAM_ATTR interrupt_dht11(){
-  for (int i = 0; i <80 ; i++){
-    dhtData[i] = 0;
-  }
-  pinMode(la,OUTPUT);
-  // send start signal 
-  digitalWrite(la,LOW);
-  timerRestart(timer2);
-  timerWrite(timer2,0);
-  
-  
-  
+void read_data()
+{
+  while (digitalRead(36) == HIGH); // start of communication
+  delayMicroseconds(160); // wait until response is received
+  for (int i = 0; i < 5; i++){
+    int j = 0;
+    u_int8_t value = 0;
+ 
+    for (j = 0; j < 8; j++) {
+      while (digitalRead(36) == LOW);
+      // if pin stays high longer than 26-28ms than the bit is 1 
+      delayMicroseconds(30);          
+      if (digitalRead(36) == HIGH){
+        // place all 1 bits in value, in order
+        value |= (1 << (8 - j)); 
+      }
+      // bit operation resource: 
+      // http://www.convertalot.com/bitwise_operators.html
+      // https://www.arduino.cc/reference/tr/language/structure/bitwise-operators/bitshiftleft/
+      // https://www.arduino.cc/reference/en/language/structure/compound-operators/compoundbitwiseor/
+            
+      // wait for next bit 
+      while (digitalRead(36) == HIGH); 
+    }
+    data[i] = value;
+    switch (i){
+      case 0: luftfeuchtigkeit = data[i]; break;
+      case 2: temperatur = data[i]; break;
+      case 4: checksum = data[i]; break;
+    }
 
+  } 
+    
+  pinMode(36, OUTPUT);    
+  digitalWrite(36, HIGH); 
 }
 
 
 
-bool readDHT();
 
 void setup() {
-  pinMode(RGB_BUILTIN,OUTPUT);
   Serial.begin(115200);
   
-  // configure timer
+  pinMode(36, OUTPUT);
+  digitalWrite(36,HIGH);
+  while(!Serial); 
   timer1 = timerBegin(1, 40000, true);
-  timerAttachInterrupt(timer1, &interrupt_dht11, true);
+  timerAttachInterrupt(timer1, &start_interrupt, true);
   timerAlarmWrite(timer1, 10000, true); 
   timerAlarmEnable(timer1);   
-
-  timer2 = timerBegin(2, 40000, true);
-  timerAttachInterrupt(timer2, end_start_signal, true);
-  timerAlarmWrite(timer2, 40,false);
-  timerAlarmEnable(timer2);
-
-  /* timer3 = timerBegin(3, 400, true);
-  timerAttachInterrupt(timer3, end_start_signal, true);
-  timerAlarmWrite(timer3, 40,true);
-  timerAlarmEnable(timer3); */
-  
-  
-  
-
-  
- 
-
-  
-  
-  
 }
 
 void loop() {
+  noInterrupts();
+  bool local_interrupt = has_interrupt;
+  has_interrupt = false;
+  interrupts();
+
+  if (local_interrupt){
+    send_start_signal();
+    read_data();
+
+    Serial.print("Luftfeuchtigkeit = ");
+    Serial.print(luftfeuchtigkeit);
+    Serial.print("% - ");
+
+    Serial.print("Temperatur = ");
+    Serial.print(temperatur);
+    Serial.println("°C");
+
+  }
+
   
-  /* if (readDHT()) {
-    float humidity = dhtData[0];
-    float temperature = dhtData[2];
-    Serial.print("Humidity: ");
-    Serial.print(humidity);
-    Serial.print(" %, Temperature: ");
-    Serial.print(temperature);
-    Serial.println(" C");
-  }
-  delay(2000); */
 }
-/* 
-bool readDHT() {
-  uint8_t lastState = HIGH;
-  uint8_t counter = 0;
-  uint8_t j = 0, i;
-
-  memset(dhtData, 0, 5);
-
-  // Send start signal
-  pinMode(DHT_PIN, OUTPUT);
-  digitalWrite(DHT_PIN, LOW);
-  delay(20);
-  digitalWrite(DHT_PIN, HIGH);
-  pinMode(DHT_PIN, INPUT);
-
-  // Read the response and data
-  for (i = 0; i < 85; i++) {
-    counter = 0;
-    while (digitalRead(DHT_PIN) == lastState) {
-      counter++;
-      delayMicroseconds(1);
-      if (counter == 255) {
-        break;
-      }
-    }
-    lastState = digitalRead(DHT_PIN);
-    if (counter == 255) {
-      break;
-    }
-    if (i >= 4 && i % 2 == 0) {
-      dhtData[j / 8] <<= 1;
-      if (counter > 16) {
-        dhtData[j / 8] |= 1;
-      }
-      j++;
-    }
-  }
-  if (j >= 40 && (dhtData[0] + dhtData[1] + dhtData[2] + dhtData[3] == dhtData[4])) {
-    return true;
-  } else {
-    return false;
-  }
-} */
